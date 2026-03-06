@@ -92,20 +92,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             prompt_token_ids = list(request.tokenized.input_token_ids)
 
             # Build sampling params with detokenize=False (key optimization!)
-            sampling_params = create_sampling_params_from_proto(
-                proto_config=request.sampling_config,
-                output_config=request.output_config,
-                max_tokens=request.max_tokens,
-                stop=list(request.stop) if request.stop else None,
-                stop_token_ids=list(request.stop_token_ids) if request.stop_token_ids else None,
-                ignore_eos=request.ignore_eos,
-                bad=list(request.bad) if request.bad else None,
-                bad_token_ids=list(request.bad_token_ids) if request.bad_token_ids else None,
-                guided_decoding=request.guided_decoding
-                if request.HasField("guided_decoding")
-                else None,
-                embedding_bias=list(request.embedding_bias) if request.embedding_bias else None,
-            )
+            sampling_params = create_sampling_params_from_proto(request)
 
             # Build LoRA request if present
             lora_request = create_lora_request_from_proto(

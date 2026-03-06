@@ -61,9 +61,11 @@ class TestSamplingParamsConversion:
         output_config = pb2.OutputConfig()
 
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
+            pb2.GenerateRequest(
+                sampling_config=proto_config,
+                output_config=output_config,
+                max_tokens=100,
+            )
         )
 
         assert params.max_tokens == 100
@@ -79,12 +81,12 @@ class TestSamplingParamsConversion:
             length_penalty=1.2,
             early_stopping=1,
         )
-        output_config = pb2.OutputConfig()
 
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=50,
+            pb2.GenerateRequest(
+                sampling_config=proto_config,
+                max_tokens=50,
+            )
         )
 
         assert params.use_beam_search is True
@@ -99,12 +101,12 @@ class TestSamplingParamsConversion:
             presence_penalty=0.5,
             frequency_penalty=0.3,
         )
-        output_config = pb2.OutputConfig()
 
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
+            pb2.GenerateRequest(
+                sampling_config=proto_config,
+                max_tokens=100,
+            )
         )
 
         assert params.repetition_penalty == 1.1
@@ -113,16 +115,16 @@ class TestSamplingParamsConversion:
 
     def test_logprobs_config(self):
         """Test logprobs configuration."""
-        proto_config = pb2.SamplingConfig()
         output_config = pb2.OutputConfig(
             logprobs=5,
             prompt_logprobs=3,
         )
 
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
+            pb2.GenerateRequest(
+                output_config=output_config,
+                max_tokens=100,
+            )
         )
 
         assert params.logprobs == 5
@@ -130,18 +132,14 @@ class TestSamplingParamsConversion:
 
     def test_guided_decoding_json_schema(self):
         """Test guided decoding with JSON schema."""
-        proto_config = pb2.SamplingConfig()
-        output_config = pb2.OutputConfig()
-        guided_decoding = pb2.GuidedDecodingParams(
-            guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_JSON_SCHEMA,
-            guide='{"type": "object", "properties": {"name": {"type": "string"}}}',
-        )
-
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
-            guided_decoding=guided_decoding,
+            pb2.GenerateRequest(
+                max_tokens=100,
+                guided_decoding=pb2.GuidedDecodingParams(
+                    guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_JSON_SCHEMA,
+                    guide='{"type": "object", "properties": {"name": {"type": "string"}}}',
+                ),
+            )
         )
 
         assert params.guided_decoding is not None
@@ -149,18 +147,14 @@ class TestSamplingParamsConversion:
 
     def test_guided_decoding_regex(self):
         """Test guided decoding with regex."""
-        proto_config = pb2.SamplingConfig()
-        output_config = pb2.OutputConfig()
-        guided_decoding = pb2.GuidedDecodingParams(
-            guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_REGEX,
-            guide=r"\d{3}-\d{4}",
-        )
-
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
-            guided_decoding=guided_decoding,
+            pb2.GenerateRequest(
+                max_tokens=100,
+                guided_decoding=pb2.GuidedDecodingParams(
+                    guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_REGEX,
+                    guide=r"\d{3}-\d{4}",
+                ),
+            )
         )
 
         assert params.guided_decoding is not None
@@ -411,15 +405,17 @@ class TestComprehensiveSamplingParamsConversion:
         embedding_bias = [0.0] * 10 + [1.5, -1.5]
 
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=256,
-            stop=["<|endoftext|>", "<|end|>"],
-            stop_token_ids=[50256],
-            ignore_eos=True,
-            bad=["badword1"],
-            bad_token_ids=[100, 101],
-            embedding_bias=embedding_bias,
+            pb2.GenerateRequest(
+                sampling_config=proto_config,
+                output_config=output_config,
+                max_tokens=256,
+                stop=["<|endoftext|>", "<|end|>"],
+                stop_token_ids=[50256],
+                ignore_eos=True,
+                bad=["badword1"],
+                bad_token_ids=[100, 101],
+                embedding_bias=embedding_bias,
+            )
         )
 
         # Beam search fields
@@ -473,14 +469,12 @@ class TestComprehensiveSamplingParamsConversion:
 
     def test_ignore_eos_flag(self):
         """Test that ignore_eos=True correctly sets ignore_eos on SamplingParams."""
-        proto_config = pb2.SamplingConfig(temperature=0.7)
-        output_config = pb2.OutputConfig()
-
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
-            ignore_eos=True,
+            pb2.GenerateRequest(
+                sampling_config=pb2.SamplingConfig(temperature=0.7),
+                max_tokens=100,
+                ignore_eos=True,
+            )
         )
 
         assert params.ignore_eos is True
@@ -491,14 +485,7 @@ class TestComprehensiveSamplingParamsConversion:
         Proto optional fields default to unset, but the conversion function
         applies safety defaults for temperature, top_p, and repetition_penalty.
         """
-        proto_config = pb2.SamplingConfig()
-        output_config = pb2.OutputConfig()
-
-        params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
-        )
+        params = create_sampling_params_from_proto(pb2.GenerateRequest(max_tokens=100))
 
         assert params.temperature == 1.0  # default safety guard
         assert params.top_p == 1.0  # default safety guard
@@ -507,18 +494,15 @@ class TestComprehensiveSamplingParamsConversion:
 
     def test_guided_decoding_all_types(self):
         """Test all guided decoding types map to correct GuidedDecodingParams fields."""
-        proto_config = pb2.SamplingConfig()
-        output_config = pb2.OutputConfig()
-
         # JSON (object mode)
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
-            guided_decoding=pb2.GuidedDecodingParams(
-                guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_JSON,
-                guide="{}",
-            ),
+            pb2.GenerateRequest(
+                max_tokens=100,
+                guided_decoding=pb2.GuidedDecodingParams(
+                    guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_JSON,
+                    guide="{}",
+                ),
+            )
         )
         assert params.guided_decoding is not None
         assert params.guided_decoding.json_object is True
@@ -526,26 +510,26 @@ class TestComprehensiveSamplingParamsConversion:
         # JSON Schema
         schema = '{"type": "object", "properties": {"name": {"type": "string"}}}'
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
-            guided_decoding=pb2.GuidedDecodingParams(
-                guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_JSON_SCHEMA,
-                guide=schema,
-            ),
+            pb2.GenerateRequest(
+                max_tokens=100,
+                guided_decoding=pb2.GuidedDecodingParams(
+                    guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_JSON_SCHEMA,
+                    guide=schema,
+                ),
+            )
         )
         assert params.guided_decoding is not None
         assert params.guided_decoding.json == schema
 
         # Regex
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
-            guided_decoding=pb2.GuidedDecodingParams(
-                guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_REGEX,
-                guide=r"\d{3}-\d{4}",
-            ),
+            pb2.GenerateRequest(
+                max_tokens=100,
+                guided_decoding=pb2.GuidedDecodingParams(
+                    guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_REGEX,
+                    guide=r"\d{3}-\d{4}",
+                ),
+            )
         )
         assert params.guided_decoding is not None
         assert params.guided_decoding.regex == r"\d{3}-\d{4}"
@@ -553,13 +537,13 @@ class TestComprehensiveSamplingParamsConversion:
         # EBNF Grammar
         grammar = 'root ::= "hello" | "world"'
         params = create_sampling_params_from_proto(
-            proto_config=proto_config,
-            output_config=output_config,
-            max_tokens=100,
-            guided_decoding=pb2.GuidedDecodingParams(
-                guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_EBNF_GRAMMAR,
-                guide=grammar,
-            ),
+            pb2.GenerateRequest(
+                max_tokens=100,
+                guided_decoding=pb2.GuidedDecodingParams(
+                    guide_type=pb2.GuidedDecodingParams.GUIDE_TYPE_EBNF_GRAMMAR,
+                    guide=grammar,
+                ),
+            )
         )
         assert params.guided_decoding is not None
         assert params.guided_decoding.grammar == grammar

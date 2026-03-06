@@ -233,38 +233,27 @@ class GrpcRequestManager:
 
 
 def create_sampling_params_from_proto(
-    proto_config: pb2.SamplingConfig,
-    output_config: pb2.OutputConfig,
-    max_tokens: int,
-    stop: Optional[List[str]] = None,
-    stop_token_ids: Optional[List[int]] = None,
-    ignore_eos: bool = False,
-    bad: Optional[List[str]] = None,
-    bad_token_ids: Optional[List[int]] = None,
-    guided_decoding: Optional[pb2.GuidedDecodingParams] = None,
-    embedding_bias: Optional[List[float]] = None,
+    request: pb2.GenerateRequest,
 ) -> SamplingParams:
-    """Convert protobuf configuration to TensorRT-LLM SamplingParams.
+    """Convert a GenerateRequest protobuf to TensorRT-LLM SamplingParams.
+
+    Extracts sampling_config, output_config, and request-level fields
+    (stop, bad words, guided decoding, etc.) from the proto and builds
+    a SamplingParams with detokenize=False.
 
     Args:
-        proto_config: Protobuf SamplingConfig message
-        output_config: Protobuf OutputConfig message
-        max_tokens: Maximum tokens to generate
-        stop: Stop strings (tokenized by TRT-LLM's _setup())
-        stop_token_ids: Stop token IDs
-        ignore_eos: Whether to ignore end-of-sequence token
-        bad: Bad word strings (tokenized by TRT-LLM's _setup())
-        bad_token_ids: Bad word token IDs
-        guided_decoding: Guided decoding parameters
-        embedding_bias: Embedding bias tensor
+        request: The full GenerateRequest protobuf message.
 
     Returns:
         TensorRT-LLM SamplingParams with detokenize=False
     """
+    proto_config = request.sampling_config
+    output_config = request.output_config
+
     # Build kwargs for SamplingParams
     # KEY OPTIMIZATION: detokenize=False skips Python detokenization!
     kwargs = {
-        "max_tokens": max_tokens,
+        "max_tokens": request.max_tokens,
         "detokenize": False,
     }
 
@@ -323,18 +312,18 @@ def create_sampling_params_from_proto(
         kwargs["no_repeat_ngram_size"] = proto_config.no_repeat_ngram_size
 
     # Stop sequences and ignore_eos (TRT-LLM's _setup() tokenizes stop strings)
-    if stop:
-        kwargs["stop"] = stop
-    if stop_token_ids:
-        kwargs["stop_token_ids"] = stop_token_ids
-    if ignore_eos:
+    if request.stop:
+        kwargs["stop"] = list(request.stop)
+    if request.stop_token_ids:
+        kwargs["stop_token_ids"] = list(request.stop_token_ids)
+    if request.ignore_eos:
         kwargs["ignore_eos"] = True
 
     # Bad words (TRT-LLM's _setup() tokenizes bad word strings)
-    if bad:
-        kwargs["bad"] = bad
-    if bad_token_ids:
-        kwargs["bad_token_ids"] = bad_token_ids
+    if request.bad:
+        kwargs["bad"] = list(request.bad)
+    if request.bad_token_ids:
+        kwargs["bad_token_ids"] = list(request.bad_token_ids)
 
     # Output configuration - logprobs
     if output_config.HasField("logprobs"):
@@ -349,11 +338,12 @@ def create_sampling_params_from_proto(
         kwargs["exclude_input_from_output"] = True
 
     # Embedding bias
-    if embedding_bias:
-        kwargs["embedding_bias"] = embedding_bias
+    if request.embedding_bias:
+        kwargs["embedding_bias"] = request.embedding_bias
 
     # Guided decoding
-    if guided_decoding and guided_decoding.guide:
+    if request.HasField("guided_decoding") and request.guided_decoding.guide:
+        guided_decoding = request.guided_decoding
         guide_type = guided_decoding.guide_type
         guide_content = guided_decoding.guide
 
@@ -367,9 +357,7 @@ def create_sampling_params_from_proto(
         elif guide_type == pb2.GuidedDecodingParams.GUIDE_TYPE_EBNF_GRAMMAR:
             kwargs["guided_decoding"] = GuidedDecodingParams(grammar=guide_content)
 
-    params = SamplingParams(**kwargs)
-
-    return params
+    return SamplingParams(**kwargs)
 
 
 def create_lora_request_from_proto(
