@@ -21,7 +21,7 @@ with external routers (e.g., sgl-router) using pre-tokenized input.
 
 import asyncio
 import io
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Generator
 from typing import List, Union
 
 import grpc
@@ -379,8 +379,8 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
         gen_result,
         prompt_token_ids: list,
         sent_token_counts: dict[int, int],
-    ) -> List[trtllm_service_pb2.GenerateResponse]:
-        """Build streaming chunk responses from GenerationResult.
+    ) -> Generator[trtllm_service_pb2.GenerateResponse, None, None]:
+        """Yield streaming chunk responses from GenerationResult.
 
         Uses cumulative token_ids and tracks sent position to compute true deltas.
         TRT-LLM's token_ids_diff doesn't clear between iterations for n>1, so we
@@ -392,26 +392,23 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             prompt_token_ids: Original prompt tokens
             sent_token_counts: Dict tracking tokens already sent per sequence index
 
-        Returns:
-            List of GenerateResponse with chunk field set (one per output)
+        Yields:
+            GenerateResponse with chunk field set (one per output)
         """
-        responses = []
         cached_tokens = gen_result.cached_tokens
 
         if not gen_result.outputs:
             # No outputs yet, return empty chunk
-            responses.append(
-                trtllm_service_pb2.GenerateResponse(
-                    request_id=request_id,
-                    chunk=trtllm_service_pb2.GenerateStreamChunk(
-                        token_ids=[],
-                        prompt_tokens=len(prompt_token_ids),
-                        completion_tokens=0,
-                        cached_tokens=cached_tokens,
-                    ),
-                )
+            yield trtllm_service_pb2.GenerateResponse(
+                request_id=request_id,
+                chunk=trtllm_service_pb2.GenerateStreamChunk(
+                    token_ids=[],
+                    prompt_tokens=len(prompt_token_ids),
+                    completion_tokens=0,
+                    cached_tokens=cached_tokens,
+                ),
             )
-            return responses
+            return
 
         # Process all outputs (for n>1 support)
         for completion in gen_result.outputs:
@@ -445,51 +442,44 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                 proto_logprobs = self._convert_logprobs_to_proto(delta_tokens, delta_logprobs)
                 chunk.logprobs.extend(proto_logprobs)
 
-            responses.append(
-                trtllm_service_pb2.GenerateResponse(
-                    request_id=request_id,
-                    chunk=chunk,
-                )
+            yield trtllm_service_pb2.GenerateResponse(
+                request_id=request_id,
+                chunk=chunk,
             )
-
-        return responses
 
     def _complete_responses(
         self,
         request_id: str,
         gen_result,
         prompt_token_ids: list,
-    ) -> List[trtllm_service_pb2.GenerateResponse]:
-        """Build final completion responses from GenerationResult.
+    ) -> Generator[trtllm_service_pb2.GenerateResponse, None, None]:
+        """Yield final completion responses from GenerationResult.
 
-        For n>1, returns one response per output sequence.
+        For n>1, yields one response per output sequence.
 
         Args:
             request_id: The request ID
             gen_result: TensorRT-LLM GenerationResult (finished=True)
             prompt_token_ids: Original prompt tokens
 
-        Returns:
-            List of GenerateResponse with complete field set (one per output)
+        Yields:
+            GenerateResponse with complete field set (one per output)
         """
-        responses = []
         cached_tokens = gen_result.cached_tokens
 
         if not gen_result.outputs:
             # No outputs, return error response
-            responses.append(
-                trtllm_service_pb2.GenerateResponse(
-                    request_id=request_id,
-                    complete=trtllm_service_pb2.GenerateComplete(
-                        output_token_ids=[],
-                        finish_reason="error",
-                        prompt_tokens=len(prompt_token_ids),
-                        completion_tokens=0,
-                        cached_tokens=0,
-                    ),
-                )
+            yield trtllm_service_pb2.GenerateResponse(
+                request_id=request_id,
+                complete=trtllm_service_pb2.GenerateComplete(
+                    output_token_ids=[],
+                    finish_reason="error",
+                    prompt_tokens=len(prompt_token_ids),
+                    completion_tokens=0,
+                    cached_tokens=0,
+                ),
             )
-            return responses
+            return
 
         # Process all outputs (for n>1 support)
         for completion in gen_result.outputs:
@@ -524,11 +514,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                 )
                 complete.prompt_logprobs.extend(proto_prompt_logprobs)
 
-            responses.append(
-                trtllm_service_pb2.GenerateResponse(
-                    request_id=request_id,
-                    complete=complete,
-                )
+            yield trtllm_service_pb2.GenerateResponse(
+                request_id=request_id,
+                complete=complete,
             )
-
-        return responses
