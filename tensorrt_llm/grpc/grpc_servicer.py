@@ -21,7 +21,6 @@ with external routers (e.g., sgl-router) using pre-tokenized input.
 
 import asyncio
 import io
-import time
 from collections.abc import AsyncGenerator
 from typing import List, Union
 
@@ -61,7 +60,6 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
         """
         self.request_manager = request_manager
         self.model_path = model_path
-        self._start_time = time.time()
         logger.info("TrtllmServiceServicer initialized")
 
     async def Generate(
