@@ -26,7 +26,7 @@ from typing import List, Union
 
 import grpc
 
-from tensorrt_llm.executor.result import Logprob, TokenLogprobs
+from tensorrt_llm.executor.result import TokenLogprobs
 from tensorrt_llm.inputs.utils import _load_and_convert_image
 from tensorrt_llm.logger import logger
 
@@ -332,39 +332,52 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
         if not logprobs or not token_ids:
             return []
 
+        n = min(len(token_ids), len(logprobs))
+
+        # Check format once (homogeneous per request)
+        if isinstance(logprobs[0], dict):
+            return self._convert_topk_logprobs(token_ids, logprobs, n)
+        return self._convert_simple_logprobs(token_ids, logprobs, n)
+
+    @staticmethod
+    def _convert_topk_logprobs(
+        token_ids: List[int],
+        logprobs: TokenLogprobs,
+        n: int,
+    ) -> List[trtllm_service_pb2.TokenLogprob]:
+        """Convert TokenLogprobs (top-k dict per position) to proto."""
         result = []
-        for i, token_id in enumerate(token_ids):
-            if i >= len(logprobs):
-                break
-
+        for i in range(n):
+            token_id = token_ids[i]
             lp = logprobs[i]
-
-            if isinstance(lp, dict):
-                # TokenLogprobs format: dict[int, Logprob]
-                # Each entry maps token_id -> Logprob(logprob, rank)
-                token_logprob = trtllm_service_pb2.TokenLogprob(
-                    token_id=token_id,
-                    logprob=lp[token_id].logprob if token_id in lp else 0.0,
+            token_logprob = trtllm_service_pb2.TokenLogprob(
+                token_id=token_id,
+                logprob=lp[token_id].logprob if token_id in lp else 0.0,
+            )
+            for tid, logprob_obj in lp.items():
+                token_logprob.top_logprobs.append(
+                    trtllm_service_pb2.TopLogprob(
+                        token_id=tid,
+                        logprob=logprob_obj.logprob,
+                    )
                 )
-                # Add top logprobs (all entries in the dict)
-                for tid, logprob_obj in lp.items():
-                    if isinstance(logprob_obj, Logprob):
-                        token_logprob.top_logprobs.append(
-                            trtllm_service_pb2.TopLogprob(
-                                token_id=tid,
-                                logprob=logprob_obj.logprob,
-                            )
-                        )
-                result.append(token_logprob)
-            elif isinstance(lp, (int, float)):
-                # Simple float logprob
-                token_logprob = trtllm_service_pb2.TokenLogprob(
-                    token_id=token_id,
-                    logprob=float(lp),
-                )
-                result.append(token_logprob)
-
+            result.append(token_logprob)
         return result
+
+    @staticmethod
+    def _convert_simple_logprobs(
+        token_ids: List[int],
+        logprobs: List[float],
+        n: int,
+    ) -> List[trtllm_service_pb2.TokenLogprob]:
+        """Convert simple float logprobs to proto."""
+        return [
+            trtllm_service_pb2.TokenLogprob(
+                token_id=token_ids[i],
+                logprob=float(logprobs[i]),
+            )
+            for i in range(n)
+        ]
 
     def _chunk_responses(
         self,
