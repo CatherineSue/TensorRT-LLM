@@ -392,6 +392,13 @@ def create_lora_request_from_proto(
     )
 
 
+_REQUEST_TYPE_MAP = {
+    pb2.DisaggregatedParams.REQUEST_TYPE_CONTEXT_AND_GENERATION: "context_and_generation",
+    pb2.DisaggregatedParams.REQUEST_TYPE_CONTEXT_ONLY: "context_only",
+    pb2.DisaggregatedParams.REQUEST_TYPE_GENERATION_ONLY: "generation_only",
+}
+
+
 def create_disaggregated_params_from_proto(
     proto_config: Optional[pb2.DisaggregatedParams],
 ) -> Optional[DisaggregatedParams]:
@@ -406,13 +413,7 @@ def create_disaggregated_params_from_proto(
     if proto_config is None:
         return None
 
-    request_type_map = {
-        pb2.DisaggregatedParams.REQUEST_TYPE_CONTEXT_AND_GENERATION: "context_and_generation",
-        pb2.DisaggregatedParams.REQUEST_TYPE_CONTEXT_ONLY: "context_only",
-        pb2.DisaggregatedParams.REQUEST_TYPE_GENERATION_ONLY: "generation_only",
-    }
-
-    request_type = request_type_map.get(proto_config.request_type, "context_and_generation")
+    request_type = _REQUEST_TYPE_MAP.get(proto_config.request_type, "context_and_generation")
 
     params = DisaggregatedParams(request_type=request_type)
 
