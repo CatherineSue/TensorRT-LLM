@@ -29,6 +29,7 @@ import grpc
 from tensorrt_llm.executor.result import TokenLogprobs
 from tensorrt_llm.inputs.utils import _load_and_convert_image
 from tensorrt_llm.logger import logger
+from tensorrt_llm.version import __version__ as _TRTLLM_VERSION
 
 from . import trtllm_service_pb2, trtllm_service_pb2_grpc
 from .grpc_request_manager import (
@@ -276,13 +277,6 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
         Returns:
             GetServerInfoResponse protobuf
         """
-        try:
-            import tensorrt_llm
-
-            version = getattr(tensorrt_llm, "__version__", "unknown")
-        except Exception:
-            version = "unknown"
-
         # Try to get parallelism info from LLM args
         tp_size = 1
         pp_size = 1
@@ -301,7 +295,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             logger.debug("Could not get parallelism info: %s", e)
 
         return trtllm_service_pb2.GetServerInfoResponse(
-            version=version,
+            version=_TRTLLM_VERSION,
             backend="tensorrt-llm",
             tensor_parallel_size=tp_size,
             pipeline_parallel_size=pp_size,
