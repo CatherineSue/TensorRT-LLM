@@ -78,7 +78,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             GenerateResponse protobuf messages (streaming)
         """
         request_id = request.request_id
-        logger.info("Generate request %s received", request_id)
+        logger.info(f"Generate request {request_id} received")
 
         try:
             # Extract tokenized input (required)
@@ -114,7 +114,11 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                     for img_bytes in request.multimodal_input.image_data
                 ]
                 multi_modal_data = {"image": images}
-                logger.info("Request %s: extracted %d multimodal images", request_id, len(images))
+                logger.info(f"Request {request_id}: extracted {len(images)} multimodal images")
+
+            # Track tokens sent per sequence index to avoid duplicates
+            # TRT-LLM's token_ids_diff doesn't clear between iterations for n>1
+            sent_token_counts: dict[int, int] = {}
 
             # Submit to request manager and stream outputs
             # The request manager now yields GenerationResult objects
@@ -129,14 +133,14 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             ):
                 # Check if client disconnected
                 if context.cancelled():
-                    logger.info("Client disconnected for %s", request_id)
+                    logger.info(f"Client disconnected for {request_id}")
                     await self.request_manager.abort(request_id)
                     return
 
                 # Convert GenerationResult to protobuf response
                 if request.streaming:
                     for chunk_response in self._chunk_responses(
-                        request_id, gen_result, prompt_token_ids
+                        request_id, gen_result, prompt_token_ids, sent_token_counts
                     ):
                         yield chunk_response
 
@@ -148,16 +152,16 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                         yield complete_response
 
         except asyncio.CancelledError:
-            logger.info("Request %s cancelled", request_id)
+            logger.info(f"Request {request_id} cancelled")
             await self.request_manager.abort(request_id)
             raise
         except grpc.aio.AbortError:
             raise
         except ValueError as e:
-            logger.warning("Invalid request in Generate for %s: %s", request_id, e)
+            logger.warning(f"Invalid request in Generate for {request_id}: {e}")
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
         except Exception as e:
-            logger.error("Error in Generate for %s: %s", request_id, e)
+            logger.error(f"Error in Generate for {request_id}: {e}")
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
     async def Embed(
@@ -192,7 +196,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             HealthCheckResponse protobuf
         """
         is_healthy, message = await self.request_manager.health_check()
-        logger.info("HealthCheck: healthy=%s, message=%s", is_healthy, message)
+        logger.info(f"HealthCheck: healthy={is_healthy}, message={message}")
 
         return trtllm_service_pb2.HealthCheckResponse(
             status=message,
@@ -213,7 +217,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             AbortResponse protobuf
         """
         request_id = request.request_id
-        logger.info("Abort request for %s", request_id)
+        logger.info(f"Abort request for {request_id}")
 
         success = await self.request_manager.abort(request_id)
 
@@ -275,7 +279,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                     pp_size = args.pipeline_parallel_size
                 world_size = tp_size * pp_size
         except Exception as e:
-            logger.debug("Could not get parallelism info: %s", e)
+            logger.debug(f"Could not get parallelism info: {e}")
 
         return trtllm_service_pb2.GetServerInfoResponse(
             version=_TRTLLM_VERSION,
@@ -361,16 +365,19 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
         request_id: str,
         gen_result,
         prompt_token_ids: list,
+        sent_token_counts: dict[int, int],
     ) -> Generator[trtllm_service_pb2.GenerateResponse, None, None]:
         """Yield streaming chunk responses from GenerationResult.
 
-        Uses CompletionOutput.token_ids_diff / logprobs_diff for delta computation,
-        consistent with TRT-LLM's OpenAI serve layer.
+        Uses cumulative token_ids and tracks sent position to compute true deltas.
+        TRT-LLM's token_ids_diff doesn't clear between iterations for n>1, so we
+        compute deltas ourselves.
 
         Args:
             request_id: The request ID
             gen_result: TensorRT-LLM GenerationResult
             prompt_token_ids: Original prompt tokens
+            sent_token_counts: Dict tracking tokens already sent per sequence index
 
         Yields:
             GenerateResponse with chunk field set (one per output)
@@ -390,12 +397,21 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             )
             return
 
+        # Process all outputs (for n>1 support)
         for completion in gen_result.outputs:
-            delta_tokens = completion.token_ids_diff
+            index = completion.index
+            # Use cumulative token_ids and compute delta ourselves
+            # because token_ids_diff doesn't clear between iterations for n>1
+            all_tokens = list(completion.token_ids) if completion.token_ids else []
+            sent_count = sent_token_counts.get(index, 0)
+            delta_tokens = all_tokens[sent_count:]
 
             # Skip if no new tokens for this sequence
             if not delta_tokens:
                 continue
+
+            # Update sent count
+            sent_token_counts[index] = len(all_tokens)
 
             chunk = trtllm_service_pb2.GenerateStreamChunk(
                 token_ids=delta_tokens,
@@ -406,8 +422,10 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             )
 
             # Add logprobs if available
+            # Note: We compute delta logprobs ourselves since logprobs_diff has same issue as token_ids_diff
             if completion.logprobs:
-                delta_logprobs = completion.logprobs_diff
+                all_logprobs = completion.logprobs
+                delta_logprobs = all_logprobs[sent_count:] if sent_count < len(all_logprobs) else []
                 proto_logprobs = self._convert_logprobs_to_proto(delta_tokens, delta_logprobs)
                 chunk.logprobs.extend(proto_logprobs)
 

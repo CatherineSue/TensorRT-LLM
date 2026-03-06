@@ -121,11 +121,11 @@ class GrpcRequestManager:
                     break
 
         except asyncio.CancelledError:
-            logger.info("Request %s cancelled by client", request_id)
+            logger.info(f"Request {request_id} cancelled by client")
             await self.abort(request_id)
             raise
         except Exception as e:
-            logger.error("Error in generate for %s: %s", request_id, e)
+            logger.error(f"Error in generate for {request_id}: {e}")
             raise
         finally:
             # Cleanup tracking
@@ -143,17 +143,17 @@ class GrpcRequestManager:
         gen_result = self._rid_to_result.get(request_id)
 
         if gen_result is None:
-            logger.debug("Abort: request %s not found (may have already completed)", request_id)
+            logger.debug(f"Abort: request {request_id} not found (may have already completed)")
             return False
 
         try:
             # GenerationResult has an abort() method
             gen_result.abort()
             self._rid_to_result.pop(request_id, None)
-            logger.info("Request %s aborted", request_id)
+            logger.info(f"Request {request_id} aborted")
             return True
         except Exception as e:
-            logger.error("Error aborting request %s: %s", request_id, e)
+            logger.error(f"Error aborting request {request_id}: {e}")
             self._rid_to_result.pop(request_id, None)
             return False
 
@@ -174,7 +174,7 @@ class GrpcRequestManager:
 
             return True, "OK"
         except Exception as e:
-            logger.error("Health check error: %s", e)
+            logger.error(f"Health check error: {e}")
             return False, f"Error: {e}"
 
     def get_model_config(self) -> Dict[str, Any]:
@@ -219,7 +219,7 @@ class GrpcRequestManager:
                 config["supports_vision"] = processor_name != "DefaultInputProcessor"
 
         except Exception as e:
-            logger.warning("Error getting model config: %s: %s", type(e).__name__, e, exc_info=True)
+            logger.warning(f"Error getting model config: {type(e).__name__}: {e}")
 
         return config
 
