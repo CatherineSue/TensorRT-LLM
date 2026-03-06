@@ -350,7 +350,7 @@ def create_sampling_params_from_proto(
 
     # Embedding bias
     if embedding_bias:
-        kwargs["embedding_bias"] = list(embedding_bias)
+        kwargs["embedding_bias"] = embedding_bias
 
     # Guided decoding
     if guided_decoding and guided_decoding.guide:
