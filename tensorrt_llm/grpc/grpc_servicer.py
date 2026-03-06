@@ -77,7 +77,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             GenerateResponse protobuf messages (streaming)
         """
         request_id = request.request_id
-        logger.info(f"Generate request {request_id} received")
+        logger.info("Generate request %s received", request_id)
 
         try:
             # Extract tokenized input (required)
@@ -126,7 +126,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                     for img_bytes in request.multimodal_input.image_data
                 ]
                 multi_modal_data = {"image": images}
-                logger.info(f"Request {request_id}: extracted {len(images)} multimodal images")
+                logger.info("Request %s: extracted %d multimodal images", request_id, len(images))
 
             # Track tokens sent per sequence index to avoid duplicates
             # TRT-LLM's token_ids_diff doesn't clear between iterations for n>1
@@ -145,7 +145,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             ):
                 # Check if client disconnected
                 if context.cancelled():
-                    logger.info(f"Client disconnected for {request_id}")
+                    logger.info("Client disconnected for %s", request_id)
                     await self.request_manager.abort(request_id)
                     return
 
@@ -164,16 +164,16 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                         yield complete_response
 
         except asyncio.CancelledError:
-            logger.info(f"Request {request_id} cancelled")
+            logger.info("Request %s cancelled", request_id)
             await self.request_manager.abort(request_id)
             raise
         except grpc.aio.AbortError:
             raise
         except ValueError as e:
-            logger.warning(f"Invalid request in Generate for {request_id}: {e}")
+            logger.warning("Invalid request in Generate for %s: %s", request_id, e)
             await context.abort(grpc.StatusCode.INVALID_ARGUMENT, str(e))
         except Exception as e:
-            logger.error(f"Error in Generate for {request_id}: {e}")
+            logger.error("Error in Generate for %s: %s", request_id, e)
             await context.abort(grpc.StatusCode.INTERNAL, str(e))
 
     async def Embed(
@@ -208,7 +208,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             HealthCheckResponse protobuf
         """
         is_healthy, message = await self.request_manager.health_check()
-        logger.info(f"HealthCheck: healthy={is_healthy}, message={message}")
+        logger.info("HealthCheck: healthy=%s, message=%s", is_healthy, message)
 
         return trtllm_service_pb2.HealthCheckResponse(
             status=message,
@@ -229,7 +229,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             AbortResponse protobuf
         """
         request_id = request.request_id
-        logger.info(f"Abort request for {request_id}")
+        logger.info("Abort request for %s", request_id)
 
         success = await self.request_manager.abort(request_id)
 
@@ -298,7 +298,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                     pp_size = args.pipeline_parallel_size
                 world_size = tp_size * pp_size
         except Exception as e:
-            logger.debug(f"Could not get parallelism info: {e}")
+            logger.debug("Could not get parallelism info: %s", e)
 
         return trtllm_service_pb2.GetServerInfoResponse(
             version=version,
