@@ -391,7 +391,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             List of GenerateResponse with chunk field set (one per output)
         """
         responses = []
-        cached_tokens = gen_result.cached_tokens if hasattr(gen_result, "cached_tokens") else 0
+        cached_tokens = gen_result.cached_tokens
 
         if not gen_result.outputs:
             # No outputs yet, return empty chunk
@@ -468,7 +468,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             List of GenerateResponse with complete field set (one per output)
         """
         responses = []
-        cached_tokens = gen_result.cached_tokens if hasattr(gen_result, "cached_tokens") else 0
+        cached_tokens = gen_result.cached_tokens
 
         if not gen_result.outputs:
             # No outputs, return error response
@@ -500,7 +500,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             )
 
             # Add matched stop if available (int token ID or str stop sequence)
-            if hasattr(completion, "stop_reason") and completion.stop_reason is not None:
+            if completion.stop_reason is not None:
                 if isinstance(completion.stop_reason, int):
                     complete.matched_token_id = completion.stop_reason
                 else:
@@ -512,7 +512,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                 complete.logprobs.extend(proto_logprobs)
 
             # Add prompt logprobs if available
-            if hasattr(completion, "prompt_logprobs") and completion.prompt_logprobs:
+            if completion.prompt_logprobs:
                 # For prompt logprobs, we use the prompt_token_ids
                 proto_prompt_logprobs = self._convert_logprobs_to_proto(
                     prompt_token_ids, completion.prompt_logprobs
