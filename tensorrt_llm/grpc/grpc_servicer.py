@@ -116,10 +116,6 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                 multi_modal_data = {"image": images}
                 logger.info("Request %s: extracted %d multimodal images", request_id, len(images))
 
-            # Track tokens sent per sequence index to avoid duplicates
-            # TRT-LLM's token_ids_diff doesn't clear between iterations for n>1
-            sent_token_counts: dict[int, int] = {}
-
             # Submit to request manager and stream outputs
             # The request manager now yields GenerationResult objects
             async for gen_result in self.request_manager.generate(
@@ -140,7 +136,7 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
                 # Convert GenerationResult to protobuf response
                 if request.streaming:
                     for chunk_response in self._chunk_responses(
-                        request_id, gen_result, prompt_token_ids, sent_token_counts
+                        request_id, gen_result, prompt_token_ids
                     ):
                         yield chunk_response
 
@@ -365,19 +361,16 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
         request_id: str,
         gen_result,
         prompt_token_ids: list,
-        sent_token_counts: dict[int, int],
     ) -> Generator[trtllm_service_pb2.GenerateResponse, None, None]:
         """Yield streaming chunk responses from GenerationResult.
 
-        Uses cumulative token_ids and tracks sent position to compute true deltas.
-        TRT-LLM's token_ids_diff doesn't clear between iterations for n>1, so we
-        compute deltas ourselves.
+        Uses CompletionOutput.token_ids_diff / logprobs_diff for delta computation,
+        consistent with TRT-LLM's OpenAI serve layer.
 
         Args:
             request_id: The request ID
             gen_result: TensorRT-LLM GenerationResult
             prompt_token_ids: Original prompt tokens
-            sent_token_counts: Dict tracking tokens already sent per sequence index
 
         Yields:
             GenerateResponse with chunk field set (one per output)
@@ -397,21 +390,12 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             )
             return
 
-        # Process all outputs (for n>1 support)
         for completion in gen_result.outputs:
-            index = completion.index
-            # Use cumulative token_ids and compute delta ourselves
-            # because token_ids_diff doesn't clear between iterations for n>1
-            all_tokens = list(completion.token_ids) if completion.token_ids else []
-            sent_count = sent_token_counts.get(index, 0)
-            delta_tokens = all_tokens[sent_count:]
+            delta_tokens = completion.token_ids_diff
 
             # Skip if no new tokens for this sequence
             if not delta_tokens:
                 continue
-
-            # Update sent count
-            sent_token_counts[index] = len(all_tokens)
 
             chunk = trtllm_service_pb2.GenerateStreamChunk(
                 token_ids=delta_tokens,
@@ -422,10 +406,8 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             )
 
             # Add logprobs if available
-            # Note: We compute delta logprobs ourselves since logprobs_diff has same issue as token_ids_diff
             if completion.logprobs:
-                all_logprobs = completion.logprobs
-                delta_logprobs = all_logprobs[sent_count:] if sent_count < len(all_logprobs) else []
+                delta_logprobs = completion.logprobs_diff
                 proto_logprobs = self._convert_logprobs_to_proto(delta_tokens, delta_logprobs)
                 chunk.logprobs.extend(proto_logprobs)
 
