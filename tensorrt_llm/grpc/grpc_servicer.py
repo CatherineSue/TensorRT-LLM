@@ -533,30 +533,3 @@ class TrtllmServiceServicer(trtllm_service_pb2_grpc.TrtllmServiceServicer):
             )
 
         return responses
-
-    def _error_response(
-        self,
-        request_id: str,
-        message: str,
-        error_type: str,
-        code: int,
-    ) -> trtllm_service_pb2.GenerateResponse:
-        """Build an error response.
-
-        Args:
-            request_id: The request ID
-            message: Error message
-            error_type: Error type string
-            code: Error code
-
-        Returns:
-            GenerateResponse with error field set
-        """
-        return trtllm_service_pb2.GenerateResponse(
-            request_id=request_id,
-            error=trtllm_service_pb2.GenerateError(
-                message=message,
-                type=error_type,
-                code=code,
-            ),
-        )
